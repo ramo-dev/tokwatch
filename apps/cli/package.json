@@ -4,7 +4,7 @@
     "type": "module",
     "main": "index.tsx",
     "scripts": {
-        "dev": "bun run index.ts",
+        "dev": "bun run index.ts -- --http",
         "build": "echo 'No build needed'",
         "test": "echo 'No tests'"
     },
