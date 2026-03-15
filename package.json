@@ -17,5 +17,8 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "ink-spinner": "^5.0.0"
   }
 }

@@ -9,9 +9,8 @@
         "test": "echo 'No tests'"
     },
     "dependencies": {
-        "ink": "^4.4.1",
-        "react": "^18.2.0",
-        "blessed": "^0.1.81"
+        "blessed": "^0.1.81",
+        "ink": "^4.4.1"
     },
     "devDependencies": {
         "@types/react": "^18.2.0",
