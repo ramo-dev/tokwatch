@@ -17,8 +17,10 @@ const A = {
     magenta: "\x1b[95m",
     hide: "\x1b[?25l",
     show: "\x1b[?25h",
-    home: "\x1b[H",
-    clear: "\x1b[2J",
+    // Cursor movement — no full clear, no home
+    col1: "\x1b[1G",          // move to column 1
+    eraseEOL: "\x1b[K",          // erase from cursor to end of line
+    eraseDown: "\x1b[J",         // erase from cursor to end of screen
 } as const
 
 const c = (col: keyof typeof A, t: string) => `${A[col]}${t}${A.reset}`
@@ -57,10 +59,39 @@ function fmtReset(date: Date): string {
     return dim(h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`)
 }
 
-// ─── VISIBLE LENGTH ──────────────────────────────────────────────────────────
+// ─── VISIBLE LENGTH ───────────────────────────────────────────────────────────
+// Strips ANSI escapes AND accounts for double-wide Unicode (CJK, some emoji).
+// Box-drawing chars and braille are single-width — safe to pass through as-is.
 
 function vlen(s: string): number {
-    return s.replace(/\x1b\[[0-9;]*m/g, "").length
+    const stripped = s.replace(/\x1b\[[0-9;]*m/g, "")
+    let len = 0
+    for (const char of stripped) {
+        const cp = char.codePointAt(0) ?? 0
+        // Double-wide ranges: CJK Unified, CJK Extension, Fullwidth Forms, etc.
+        if (
+            (cp >= 0x1100 && cp <= 0x115F) ||  // Hangul Jamo
+            (cp >= 0x2E80 && cp <= 0x303E) ||  // CJK Radicals / Kangxi
+            (cp >= 0x3041 && cp <= 0x33FF) ||  // Hiragana … CJK Compatibility
+            (cp >= 0x3400 && cp <= 0x4DBF) ||  // CJK Extension A
+            (cp >= 0x4E00 && cp <= 0x9FFF) ||  // CJK Unified
+            (cp >= 0xA000 && cp <= 0xA4CF) ||  // Yi
+            (cp >= 0xAC00 && cp <= 0xD7AF) ||  // Hangul Syllables
+            (cp >= 0xF900 && cp <= 0xFAFF) ||  // CJK Compatibility Ideographs
+            (cp >= 0xFE10 && cp <= 0xFE1F) ||  // Vertical Forms
+            (cp >= 0xFE30 && cp <= 0xFE4F) ||  // CJK Compatibility Forms
+            (cp >= 0xFF00 && cp <= 0xFF60) ||  // Fullwidth Forms
+            (cp >= 0xFFE0 && cp <= 0xFFE6) ||  // Fullwidth Signs
+            (cp >= 0x1F300 && cp <= 0x1F9FF) ||  // Misc Symbols / Emoji
+            (cp >= 0x20000 && cp <= 0x2FFFD) ||  // CJK Extension B-F
+            (cp >= 0x30000 && cp <= 0x3FFFD)     // CJK Extension G+
+        ) {
+            len += 2
+        } else {
+            len += 1
+        }
+    }
+    return len
 }
 
 function pad(s: string, width: number, align: "left" | "right" = "left"): string {
@@ -68,7 +99,7 @@ function pad(s: string, width: number, align: "left" | "right" = "left"): string
     return align === "right" ? " ".repeat(p) + s : s + " ".repeat(p)
 }
 
-// ─── SPARKLINE ───────────────────────────────────────────────────────────────
+// ─── SPARKLINE ────────────────────────────────────────────────────────────────
 
 const SPARK = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const
 
@@ -82,7 +113,7 @@ function sparkline(hist: number[], width = 10): string {
     return " ".repeat(width - bars.length) + c("cyan", bars.join(""))
 }
 
-// ─── GAUGE ───────────────────────────────────────────────────────────────────
+// ─── GAUGE ────────────────────────────────────────────────────────────────────
 
 const BAR_W = 16
 
@@ -99,11 +130,14 @@ function gauge(pct: number): string {
     )
 }
 
-// ─── BOX DRAWING ─────────────────────────────────────────────────────────────
+// ─── TERMINAL WIDTH ───────────────────────────────────────────────────────────
+// Always read live — never cache. Called fresh per frame so SIGWINCH is implicit.
 
 function termCols(): number {
-    return Math.min(process.stdout.columns ?? 80, 100) - 2
+    return Math.min(process.stdout.columns ?? 80, 120) - 2
 }
+
+// ─── BOX DRAWING ─────────────────────────────────────────────────────────────
 
 function rule(left = "├", right = "┤", fill = "─", w = termCols()): string {
     return dim(left + fill.repeat(w) + right)
@@ -128,6 +162,35 @@ function updateHistory(plugin: string, used: number): void {
     h.push(used)
     if (h.length > 40) h.shift()
     history.set(plugin, h)
+}
+
+// ─── DOUBLE-BUFFER RENDERER ──────────────────────────────────────────────────
+// Keeps track of the last frame's lines. On each repaint:
+//   1. Move cursor to top-left (no clear, no flash).
+//   2. Write each new line followed by eraseEOL (clears trailing chars from longer previous line).
+//   3. After the last new line, eraseDown (clears any lines the previous frame had but this one doesn't).
+// This eliminates both flicker AND leftover-character artifacts in one shot.
+
+let prevLineCount = 0
+
+function repaintFrame(frame: string): void {
+    const lines = frame.split("\n")
+    const out: string[] = []
+
+    out.push(A.hide)             // hide cursor during repaint
+    out.push("\x1b[H")          // cursor to row 1 col 1 (no screen clear)
+
+    for (const line of lines) {
+        out.push(line + A.eraseEOL + "\n")
+    }
+
+    // If the new frame has fewer lines than the previous one, erase the rest
+    if (lines.length < prevLineCount) {
+        out.push(A.eraseDown)
+    }
+
+    prevLineCount = lines.length
+    process.stdout.write(out.join(""))
 }
 
 // ─── FRAME BUILDER ───────────────────────────────────────────────────────────
@@ -207,7 +270,7 @@ function buildFrame(
 
             if (r.limit || r.resetAt) {
                 const parts: string[] = []
-                if (r.limit) parts.push(`${dim("limit")} ${c("white", fmt(r.limit))}`)
+                if (r.limit) parts.push(`${dim("limit")}     ${c("white", fmt(r.limit))}`)
                 if (r.remaining !== null) parts.push(`${dim("remaining")} ${c("cyan", fmt(r.remaining))}`)
                 if (r.resetAt) parts.push(fmtReset(r.resetAt))
                 lines.push(row("  " + " ".repeat(16) + "  " + parts.join("   "), w))
@@ -299,8 +362,8 @@ async function poll(): Promise<void> {
 }
 
 function repaint(): void {
-    process.stdout.write(
-        A.home + buildFrame(lastResults, lastCumulative, isPolling, cfgHttp, cfgPort, lastError),
+    repaintFrame(
+        buildFrame(lastResults, lastCumulative, isPolling, cfgHttp, cfgPort, lastError),
     )
 }
 
@@ -318,8 +381,20 @@ function setupInput(): void {
 }
 
 function gracefulExit(): void {
-    process.stdout.write(A.show + "\n  " + dim("bye.") + "\n\n")
+    process.stdout.write(A.show + A.eraseDown + "\n  " + dim("bye.") + "\n\n")
     process.exit(0)
+}
+
+// ─── RESIZE HANDLER ──────────────────────────────────────────────────────────
+// On SIGWINCH the terminal has already updated process.stdout.columns.
+// We force a full redraw: reset prevLineCount so eraseDown fires for the whole
+// screen (handles shrink → expand → shrink sequences cleanly).
+
+function setupResize(): void {
+    process.stdout.on("resize", () => {
+        prevLineCount = 0   // force full repaint on next frame
+        repaint()
+    })
 }
 
 // ─── ARG PARSING ─────────────────────────────────────────────────────────────
@@ -386,7 +461,8 @@ async function main(): Promise<void> {
         setInterval(httpPoll, args.interval)
     }
 
-    process.stdout.write(A.clear + A.hide)
+    // Don't clear the screen — just hide cursor and set up state
+    process.stdout.write(A.hide)
     process.on("SIGINT", gracefulExit)
     process.on("SIGTERM", gracefulExit)
 
@@ -400,17 +476,20 @@ async function main(): Promise<void> {
     }
 
     setupInput()
+    setupResize()
 
     await poll()
     repaint()
 
-    // spinner animates at 100ms; data polls on its own interval
+    // Spinner animates at 100ms; data polls on its own interval
     setInterval(repaint, 100)
     setInterval(async () => { await poll(); repaint() }, args.interval)
 }
 
 main().catch((err) => {
     process.stdout.write(A.show)
-    console.error(`\n  ${c("yellow", "error")}  ${err instanceof Error ? err.message : String(err)}\n`)
+    console.error(
+        `\n  ${c("yellow", "error")}  ${err instanceof Error ? err.message : String(err)}\n`,
+    )
     process.exit(1)
 })

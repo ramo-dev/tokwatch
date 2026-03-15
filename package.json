@@ -1,24 +1,24 @@
 {
-  "name": "tokwatch",
-  "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
-  "scripts": {
-    "dev": "bun run --filter '*' dev",
-    "dev:web": "bun run --filter web dev",
-    "dev:cli": "bun run --filter cli dev",
-    "dev:api": "bun run --filter api dev",
-    "build": "bun run --filter '*' build",
-    "test": "bun run --filter '*' test"
-  },
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "ink-spinner": "^5.0.0"
-  }
+    "name": "tokwatch",
+    "private": true,
+    "workspaces": [
+        "apps/*"
+    ],
+    "scripts": {
+        "dev": "bun run --filter '!cli' dev & bun run --cwd apps/cli dev",
+        "dev:web": "bun run --filter web dev",
+        "dev:cli": "bun run --cwd apps/cli dev",
+        "dev:api": "bun run --filter api dev",
+        "build": "bun run --filter '*' build",
+        "test": "bun run --filter '*' test"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {
+        "ink-spinner": "^5.0.0"
+    }
 }
