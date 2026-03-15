@@ -1,0 +1,20 @@
+{
+    "name": "cli",
+    "version": "1.0.0",
+    "type": "module",
+    "main": "index.tsx",
+    "scripts": {
+        "dev": "bun run index.ts",
+        "build": "echo 'No build needed'",
+        "test": "echo 'No tests'"
+    },
+    "dependencies": {
+        "ink": "^4.4.1",
+        "react": "^18.2.0",
+        "blessed": "^0.1.81"
+    },
+    "devDependencies": {
+        "@types/react": "^18.2.0",
+        "@types/blessed": "^0.1.0"
+    }
+}

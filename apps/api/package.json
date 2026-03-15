@@ -1,0 +1,11 @@
+{
+  "name": "api",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "echo 'API runs as library'",
+    "build": "echo 'No build needed'",
+    "test": "echo 'No tests'"
+  }
+}
