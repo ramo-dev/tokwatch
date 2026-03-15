@@ -1,7 +1,6 @@
-import blessed from "blessed"
-import { runPlugins } from "../api/core/runner"
-import { startHttpServer, updateResults } from "../api/outputs/http"
 import { availablePlugins, loadConfig, getPluginsFromConfig } from "../api/core/config"
+import { runPlugins } from "../api/core/runner"
+import { getCumulative } from "../api/core/store"
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + "B"
@@ -10,120 +9,71 @@ function formatNumber(n: number): string {
   return n.toString()
 }
 
-function createBar(value: number, max: number, width = 30): string {
-  const len = Math.round((value / max) * width)
-  return "█".repeat(len) + "░".repeat(width - len)
+function createBar(value: number, max: number, width = 20): string {
+  const len = max > 0 ? Math.round((value / max) * width) : 0
+  return "█".repeat(Math.min(len, width)) + "░".repeat(Math.max(0, width - len))
+}
+
+async function render() {
+  const config = await loadConfig()
+  const plugins = getPluginsFromConfig(config, availablePlugins.all)
+  
+  const results = await runPlugins(plugins)
+  const cumulative = getCumulative()
+
+  console.clear()
+  
+  console.log("\n" + "═".repeat(60))
+  console.log("  TOKWATCH - Token Monitor")
+  console.log("═".repeat(60))
+  
+  console.log("\n📊 Current Usage:")
+  console.log("─".repeat(40))
+  
+  const maxCurrent = Math.max(...results.map(p => p.used), 1)
+  for (const p of results) {
+    const bar = createBar(p.used, maxCurrent)
+    console.log(`  ${p.plugin.padEnd(12)} ${bar} ${formatNumber(p.used).padStart(8)}`)
+  }
+  
+  console.log("\n📈 Cumulative:")
+  console.log("─".repeat(40))
+  
+  const maxCum = Math.max(...cumulative.map(c => c.total_used), 1)
+  for (const c of cumulative) {
+    const bar = createBar(c.total_used, maxCum)
+    console.log(`  ${c.plugin.padEnd(12)} ${bar} ${formatNumber(c.total_used).padStart(8)}`)
+  }
+  
+  console.log("\n" + "─".repeat(40))
+  console.log(`  Total: ${formatNumber(cumulative.reduce((a, c) => a + c.total_used, 0))}`)
+  console.log("─".repeat(40))
+  console.log("\n  Press Ctrl+C to exit\n")
 }
 
 async function main() {
   const args = process.argv.slice(2)
-  const port = parseInt(args.find(a => a.startsWith("--port="))?.split("=")[1] || "7842", 10)
-  const interval = parseInt(args.find(a => a.startsWith("--interval="))?.split("=")[1] || "5000", 10)
-  const httpMode = args.includes("--http")
-
-  const config = await loadConfig()
-  const plugins = getPluginsFromConfig(config, availablePlugins.all)
-
-  if (httpMode) {
+  
+  if (args.includes("--http")) {
+    const port = parseInt(args.find(a => a.startsWith("--port="))?.split("=")[1] || "7842")
+    const interval = parseInt(args.find(a => a.startsWith("--interval="))?.split("=")[1] || "5000")
+    
+    const { startHttpServer, updateResults } = await import("../api/outputs/http")
+    const config = await loadConfig()
+    const plugins = getPluginsFromConfig(config, availablePlugins.all)
+    
     startHttpServer(port)
     setInterval(() => runPlugins(plugins, updateResults), interval)
-    console.log(`HTTP server running on port ${port}`)
-    return
+    
+    console.log(`HTTP server running on http://localhost:${port}/metrics`)
+    console.log("Press Ctrl+C to stop\n")
+    
+    await render()
+    
+    setInterval(render, 10000)
+  } else {
+    await render()
   }
-
-  const screen = blessed.screen({ smartCSR: true, title: "TokWatch" })
-
-  const container = blessed.box({
-    top: "center",
-    left: "center",
-    width: "80%",
-    height: "80%",
-    border: { type: "line", fg: "cyan" },
-    style: { border: { fg: "cyan" } }
-  })
-
-  const title = blessed.box({
-    top: 0,
-    left: "center",
-    content: "{bold}{cyan}TOKWATCH{/cyan}{/bold}",
-    tags: true
-  })
-
-  const currentBox = blessed.box({
-    top: 3,
-    left: 2,
-    width: "45%",
-    height: "70%",
-    border: { type: "line", fg: "magenta" },
-    title: "Current Usage"
-  })
-
-  const cumulativeBox = blessed.box({
-    top: 3,
-    right: 2,
-    width: "45%",
-    height: "70%",
-    border: { type: "line", fg: "blue" },
-    title: "Cumulative"
-  })
-
-  const helpBox = blessed.box({
-    bottom: 0,
-    left: "center",
-    content: "{yellow}t{/yellow}: toggle | {yellow}r{/yellow}: refresh | {yellow}q{/yellow}: quit",
-    tags: true
-  })
-
-  screen.append(container)
-  container.append(title)
-  container.append(currentBox)
-  container.append(cumulativeBox)
-  container.append(helpBox)
-
-  let viewMode: "current" | "cumulative" = "current"
-
-  const render = async () => {
-    const results = await runPlugins(plugins)
-    const { getCumulative } = await import("../api/core/store")
-    const cumulative = getCumulative()
-
-    const data = viewMode === "current" 
-      ? results.map(p => ({ label: p.plugin, value: p.used }))
-      : cumulative.map(c => ({ label: c.plugin, value: c.total_used }))
-
-    const maxVal = Math.max(...data.map(d => d.value), 1)
-
-    currentBox.setContent(
-      data.map(d => 
-        `{magenta}${d.label.padEnd(12)}{/magenta} ${createBar(d.value, maxVal)} {cyan}${formatNumber(d.value)}{/cyan}`
-      ).join("\n")
-    )
-
-    cumulativeBox.setContent(
-      cumulative.map(c => 
-        `{blue}${c.plugin.padEnd(12)}{/blue} {green}${formatNumber(c.total_used)}{/green}`
-      ).join("\n")
-    )
-
-    screen.render()
-  }
-
-  screen.key(["t"], () => {
-    viewMode = viewMode === "current" ? "cumulative" : "current"
-    render()
-  })
-
-  screen.key(["r"], () => {
-    render()
-  })
-
-  screen.key(["q"], () => {
-    process.exit(0)
-  })
-
-  await render()
-
-  setInterval(render, 10000)
 }
 
-main()
+main().catch(console.error)
