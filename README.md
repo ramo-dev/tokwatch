@@ -1,6 +1,6 @@
 # TokWatch
 
-Your local token accountant - because "how much did I just spend?" shouldn't require a spreadsheet. TokWatch monitors token usage across Claude Code, OpenCode, Ollama, Cursor, Antigravity, and Windsurf, persists it to SQLite, and surfaces it however you like: terminal, HTTP, a proper web dashboard, or an interactive blessed CLI.
+Your local token accountant - because "how much did I just spend?" shouldn't require a spreadsheet. TokWatch monitors token usage across Claude Code, OpenCode, Ollama, Cursor, Antigravity, and Windsurf, persists it to SQLite, and surfaces it however you like: terminal, HTTP, a proper web dashboard, or an interactive blessed CLI. Starts in under 300ms.
 
 ## Features
 
@@ -156,7 +156,7 @@ import type { TokenPlugin, PluginResult } from "../core/types"
 
 export const myToolPlugin: TokenPlugin = {
   name: "my-tool",
-  async poll(): Promise<PluginResult> {
+  async poll(): Promise {
     return {
       plugin: "my-tool",
       used: 1000000,
@@ -194,4 +194,4 @@ tokwatch/
 
 ## License
 
-[LICENSE]
+MIT — see [LICENSE](./LICENSE).
